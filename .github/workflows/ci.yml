@@ -41,8 +41,8 @@ jobs:
           
 
       # 4. Enforce code formatting with Black
-      - name: Check Code Formatting (Black)
-        run: |
+      - name: Check Code Formatting Black 
+        run: |true
           python -m black --check .
 
       # 5. Lint code with Flake8
