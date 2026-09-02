@@ -1,0 +1,44 @@
+# ==============================================================================
+# Enterprise B2B Lead Extractor - Repository Git Ignore
+# ==============================================================================
+
+# --- 1. Environment & Credentials (CRITICAL) ---
+.env
+.env.*
+!.env.example
+secrets/
+
+# --- 2. Apify Storage & Massive Datasets ---
+apify_storage/
+storage/
+output/
+data/
+*.csv
+*.xlsx
+*.sqlite
+*.log
+
+# Ignore all JSON data dumps EXCEPT our public sample file
+*.json
+!sample-leads-output.json
+
+# --- 3. Python & Virtual Environments ---
+venv/
+env/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- 4. IDE & Editor Configurations ---
+.vscode/
+.idea/
+.cursor/
+*.swp
+
+# --- 5. OS Generated Junk Files ---
+.DS_Store
+Thumbs.db
