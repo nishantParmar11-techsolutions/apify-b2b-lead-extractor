@@ -41,16 +41,19 @@ jobs:
       # 4. Enforce code formatting with Black
       - name: Check Code Formatting (Black)
         run: |
-          black --check .
+          python -m black --check .
 
       # 5. Lint code with Flake8
       - name: Lint Code with Flake8
         run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+           python -m flake8 --count --select=E9,F63,F7,F82 --show-source --statistics
+           python -m flake8 --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+          
 
       # 6. Run PyTest suite with short tracebacks
       - name: Run PyTest Suite
         run: |
-          pytest -v --tb=short
+          python -m pytest -v --tb=short
+          
           
