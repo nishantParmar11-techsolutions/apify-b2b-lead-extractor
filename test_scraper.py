@@ -1,113 +1,70 @@
-# ==============================================================================
-# Enterprise B2B Lead Extractor - Automated Pytest Suite
-# ==============================================================================
-
-import os
-import json
 import logging
 import pytest
-import requests
-import requests_mock
-from pydantic import BaseModel, EmailStr, HttpUrl, Field
-from dotenv import load_dotenv
-
-# Load test environment variables
-load_dotenv()
-
-# Configure testing logger
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - [Lead Extractor Test Suite] - %(message)s"
-)
-
-APIFY_WEBHOOK_TEST_URL = os.getenv("APIFY_WEBHOOK_URL", "https://api.apify.com/v2/actor-runs/test-run")
-
-# ==============================================================================
-# Pydantic Schema Model for Validation Testing
-# ==============================================================================
-class B2BLeadModel(BaseModel):
-    company_name: str = Field(..., min_length=1)
-    industry: str
-    decision_maker_name: str
-    title: str
-    email: EmailStr
-    linkedin_url: HttpUrl
-    company_website: HttpUrl
-    location: str
-
+from unittest.mock import MagicMock
+from lead_extractor import ApifyLeadExtractor, LeadRecord
 
 @pytest.fixture
-def sample_raw_lead_payload() -> dict:
-    """Provides a standardized raw lead dictionary mimicking Apify scraper output."""
-    return {
-        "company_name": "Apex SaaS Solutions",
-        "industry": "B2B Cloud Infrastructure",
-        "decision_maker_name": "Marcus Vance",
-        "title": "Chief Technology Officer",
-        "email": "marcus.v@apexsaas.example",
-        "linkedin_url": "https://linkedin.com/in/marcus-vance-example",
-        "company_website": "https://apexsaas.example",
-        "location": "San Francisco, CA"
-    }
-
-
-def test_lead_schema_pydantic_validation(sample_raw_lead_payload: dict) -> None:
+def mock_apify_client(monkeypatch):
     """
-    Validates that incoming raw scraped lead dictionaries conform strictly 
-    to the Pydantic data model and pass type safety checks.
+    Uses Pytest's native monkeypatch for perfect isolation.
+    Guarantees the real SDK is never accidentally called over the network.
     """
-    logging.info("Running Pydantic schema validation test...")
-    lead_instance = B2BLeadModel(**sample_raw_lead_payload)
+    mock_client_class = MagicMock()
+    mock_instance = MagicMock()
+    mock_client_class.return_value = mock_instance
+    monkeypatch.setattr("lead_extractor.ApifyClient", mock_client_class)
+    return mock_instance
+
+@pytest.fixture
+def extractor(mock_apify_client):
+    return ApifyLeadExtractor(api_token="prod_secure_token_999")
+
+def test_stream_valid_leads_with_dirty_payload(extractor, mock_apify_client, caplog):
+    """
+    Tests data sanitization and operational logging against real-world API bloat.
+    """
+    caplog.set_level(logging.INFO)
     
-    assert lead_instance.company_name == "Apex SaaS Solutions"
-    assert lead_instance.email == "marcus.v@apexsaas.example"
-    assert str(lead_instance.linkedin_url).startswith("https://")
-
-
-def test_scraper_success_mock(requests_mock: requests_mock.Mocker, sample_raw_lead_payload: dict) -> None:
-    """
-    Mocks a successful Apify dataset retrieval endpoint and verifies 
-    that the pipeline processes and structures the lead batch correctly.
-    """
-    mock_api_response = {
-        "data": {
-            "status": "SUCCEEDED",
-            "defaultDatasetId": "dataset_id_xyz987",
-            "itemsCount": 1
+    # Simulates a messy Apify response with unwanted tracking fields
+    dirty_mock_data = [
+        {
+            "full_name": "Nishant Parmar", 
+            "company": "Abynthe & Co.", 
+            "email": "nishant@example.com",
+            "unwanted_apify_tracking_id": "xyz-987", # Must be dropped
+            "linkedin_url": "https://linkedin.com/in/nishant"
         },
-        "extracted_leads": [sample_raw_lead_payload]
-    }
-
-    requests_mock.get(APIFY_WEBHOOK_TEST_URL, json=mock_api_response, status_code=200)
-
-    logging.info(f"Firing mock GET request to: {APIFY_WEBHOOK_TEST_URL}")
-    response = requests.get(APIFY_WEBHOOK_TEST_URL, timeout=10)
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["data"]["status"] == "SUCCEEDED"
-    assert len(data["extracted_leads"]) == 1
-    assert data["extracted_leads"][0]["company_name"] == "Apex SaaS Solutions"
-
-
-@pytest.mark.parametrize(
-    "http_error_code, error_description",
-    [
-        (401, "Unauthorized: Invalid Apify API token"),
-        (429, "Rate Limit Exceeded: Too many requests"),
-        (500, "Internal Server Error: Apify actor crash")
+        {
+            "full_name": "Ghost Lead", 
+            "company": "No Email Corp" 
+            # Missing email, must be silently skipped
+        }
     ]
-)
-def test_scraper_error_handling_matrix(requests_mock: requests_mock.Mocker, http_error_code: int, error_description: str) -> None:
-    """
-    Parametrized test suite verifying that the pipeline gracefully catches 
-    network failures, rate limits, and authentication errors.
-    """
-    requests_mock.get(APIFY_WEBHOOK_TEST_URL, status_code=http_error_code, text=error_description)
+    
+    mock_dataset = MagicMock()
+    mock_dataset.iterate_items.return_value = dirty_mock_data
+    mock_apify_client.dataset.return_value = mock_dataset
 
-    logging.info(f"Testing resilience against HTTP error code: {http_error_code}")
-    response = requests.get(APIFY_WEBHOOK_TEST_URL, timeout=10)
+    # Consume the generator
+    leads = list(extractor.stream_valid_leads("test_dataset_xyz"))
+    
+    # 1. Assert Telemetry: Did the system log its startup sequence?
+    assert "Connecting to Apify dataset: test_dataset_xyz" in caplog.text
+    
+    # 2. Assert Sanitization: Did it drop the bad row and strip the junk fields?
+    assert len(leads) == 1
+    assert leads[0].email == "nishant@example.com"
+    assert leads[0].linkedin_url == "https://linkedin.com/in/nishant"
+    assert not hasattr(leads[0], "unwanted_apify_tracking_id")
 
-    assert response.status_code == http_error_code
-    assert error_description in response.text
-  
+def test_stream_api_failure_logs_and_raises(extractor, mock_apify_client, caplog):
+    """
+    Ensures that when Apify goes down, the exact error is logged for SysOps.
+    """
+    mock_apify_client.dataset.side_effect = Exception("HTTP 502 Bad Gateway")
+    
+    with pytest.raises(RuntimeError, match="Extraction failed: HTTP 502 Bad Gateway"):
+        list(extractor.stream_valid_leads("broken_dataset_id"))
+        
+    # Assert Telemetry: Did the system log the exact failure reason?
+    assert "Failed to stream dataset: HTTP 502 Bad Gateway" in caplog.text
