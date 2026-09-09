@@ -12,19 +12,19 @@ An enterprise-grade Python automation engine designed to ingest, validate, sanit
 
 ## 🏛️ Architectural Overview
 
-```
+```text
 [ Apify Cloud Actors ] ───> [ Raw Dataset Ingestion ]
-                                     │
-                                     ▼
-                      [ Pydantic v2 Schema Gate ]
-                     (RFC Email & Field Validation)
-                                     │
-            ┌────────────────────────┴────────────────────────┐
-            ▼                                                 ▼
-   [ Validated Leads ]                              [ Malformed Quarantine ]
-            │                                                 │
-            ▼                                                 ▼
-  [ Downstream CRM/Sink ]                            [ Error Logs & Telemetry ]
+                                       │
+                                       ▼
+                            [ Pydantic v2 Schema Gate ]
+                            (RFC Email & Field Validation)
+                                       │
+                   ┌───────────────────┴───────────────────┐
+                   ▼                                       ▼
+          [ Validated Leads ]                   [ Malformed Quarantine ]
+                   │                                       │
+                   ▼                                       ▼
+       [ Downstream CRM/Sink ]                 [ Error Logs & Telemetry ]
 ```
 
 ---
@@ -33,19 +33,19 @@ An enterprise-grade Python automation engine designed to ingest, validate, sanit
 
 | Layer | Technology | Function |
 | :--- | :--- | :--- |
-| **Runtime** | Python 3.10 – 3.12 | Base execution environment |
-| **Schema Validation** | Pydantic v2, `email-validator` | Strict data normalization and RFC email validation |
-| **Data Ingestion** | Apify Client, Requests | RESTful dataset pagination and actor run polling |
-| **Test Isolation** | PyTest, `requests-mock` | Automated network-isolated unit and edge-case testing |
-| **CI/CD Automation** | GitHub Actions Matrix | Automated Flake8 linting, Black formatting, and multi-Python matrix |
+| **Runtime** | Python 3.10 - 3.12 | Base execution environment |
+| **Schema Validation** | Pydantic v2 | Strict data normalization and RFC email validation |
+| **Data Ingestion** | Apify Client SDK | Memory-safe RESTful dataset pagination and actor run polling |
+| **Test Isolation** | PyTest, `unittest.mock` | Automated network-isolated unit and edge-case testing |
+| **CI/CD Automation** | GitHub Actions | Automated Flake8 linting, Black formatting, and multi-Python matrix |
 
 ---
 
 ## 🚀 Key Features
 
-* **Strict RFC Schema Enforcement:** Leverages Pydantic `EmailStr` and custom schema validators (`lead_extractor.py`) to eliminate corrupt records and missing domains.
-* **Defensive Paginated Ingestion:** Implements automated retry logic, exponential backoff, and pagination handling across variable Apify dataset volumes.
-* **Deterministic Mocked Testing:** Employs `pytest` and `requests-mock` to test network timeouts, schema drifts, and malformed API payloads without burning Apify compute units.
+* **Strict RFC Schema Enforcement:** Leverages Pydantic `EmailStr` and custom schema validators to eliminate corrupt records and missing domains.
+* **Defensive Paginated Ingestion:** Uses Python generators (`yield`) and the official Apify SDK to stream millions of rows with a ~0% memory footprint, avoiding server crashes.
+* **Deterministic Mocked Testing:** Employs `pytest` and native `monkeypatch` to test network timeouts, schema drifts, and malformed API payloads without burning Apify compute units.
 * **Multi-Version Pipeline:** Fully automated GitHub Actions workflow verifying compatibility across Python 3.10, 3.11, and 3.12.
 
 ---
@@ -54,14 +54,14 @@ An enterprise-grade Python automation engine designed to ingest, validate, sanit
 
 ```text
 ├── .github/workflows/
-│   └── ci.yml             # Enterprise Multi-Python Matrix CI Pipeline
-├── lead_extractor.py      # Core data ingestion, validation & export engine
-├── test_scraper.py        # PyTest suite with isolated mock HTTP adapters
-├── Dockerfile             # Multi-stage production container build
-├── requirements.txt       # Production and development dependencies
-├── .env.example           # Environment credential templates
-├── Makefile               # Build, lint, and test CLI targets
-└── README.md              # Project architecture and setup documentation
+│   └── ci.yml               # Enterprise Multi-Python Matrix CI Pipeline
+├── lead_extractor.py        # Core data ingestion, validation & export engine
+├── test_scraper.py          # PyTest suite with isolated mock HTTP adapters
+├── Dockerfile               # Multi-stage production container build
+├── requirements.txt         # Production and development dependencies
+├── .env.example             # Environment credential templates
+├── Makefile                 # Build, lint, and test CLI targets
+└── README.md                # Project architecture and setup documentation
 ```
 
 ---
@@ -73,4 +73,29 @@ An enterprise-grade Python automation engine designed to ingest, validate, sanit
 git clone [https://github.com/nishantParmar11-techsolutions/apify-b2b-lead-extractor.git](https://github.com/nishantParmar11-techsolutions/apify-b2b-lead-extractor.git)
 cd apify-b2b-lead-extractor
 python -m venv .venv
-source .venv/bin/activate  #
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 2. Set Environment Variables
+```bash
+export APIFY_API_TOKEN="your_secure_token_here"
+```
+
+### 3. Run the Streaming Extractor
+```python
+import os
+from lead_extractor import ApifyLeadExtractor
+
+extractor = ApifyLeadExtractor(api_token=os.getenv("APIFY_API_TOKEN"))
+
+# Safely streams through thousands of leads row-by-row
+for lead in extractor.stream_valid_leads("your_dataset_id_here"):
+    print(f"Found: {lead.full_name} at {lead.company} ({lead.email})")
+```
+
+### 4. Run the Test Suite
+Run the Pytest suite with strict coverage enforcement:
+```bash
+pytest --cov=lead_extractor --cov-report=term-missing --cov-fail-under=80 test_scraper.py
+```
